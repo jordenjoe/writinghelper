@@ -40,17 +40,17 @@ def generate_size_feedback(written_letter_information):
 
     size_feedback_scores = []
 
-    average = statistics.median(area_list)
+    median = statistics.median(area_list)
 
     for index, number in enumerate(area_list):
 
-        if number > average + (average/3):
+        if number > median + (median/3):
 
             print(f"Letter {index+1} is too large compared to your other letters.",
                    "Try writing it smaller. ")
             size_feedback_scores.append(0)
             
-        elif number < average - (average/3):
+        elif number < median - (median/3):
 
             print(f"Letter {index+1} is too small compared to your other letters.",
                    "Try writing it larger. ")
@@ -87,13 +87,13 @@ def generate_spacing_feedback(written_letter_information):
 
         spacings.append(spacing)
 
-    average = statistics.median(spacings)
+    median = statistics.median(spacings)
 
     for index in range(4):
         spacing = spacings[index]
 
-        # if not within 50 of average, flag spacing for both letters 
-        if (average - 50 < spacing < average + 50):
+        # if not within 50 of median, flag spacing for both letters 
+        if (median - 50 < spacing < median + 50):
 
             spacing_feedback_scores[index] = 1
             spacing_feedback_scores[index+1] = 1
