@@ -4,11 +4,30 @@ import time
 from PIL import Image
 from matplotlib import pyplot as plt
 import statistics
+import pytesseract
+import numpy as np
 
 
 practice_letters = ['L', 'F', 'E', 'H', 'T', 'I', 'D', 'B', 'P', 'U', 'J', 'C', 'O', 'G', 'Q', 'S', 'R', 'A', 'K', 'M', 'N', 'V', 'W', 'X', 'Y', 'Z', 'l', 't', 'i', 'c', 'k', 'o', 'p', 's', 'v', 'u', 'w', 'x', 'z', 'h', 'n', 'm', 'r', 'b', 'a', 'd', 'g', 'q', 'e', 'f', 'j', 'k', 'y']
-practice_letters = ['L', 'F', 'E']
+practice_letters = ['A', 'L', 'F', 'E']
+# L is bad at detection
+# A has some feeedback on sizing
+# F is bad at size
+# E is bad at spacing
 TK_SILENCE_DEPRECATION=1
+
+# psm 10: Treat the image as a single character.
+myconfig = r"--psm 10 --oem 3"
+
+# this works okay, but only for A
+#myconfig = r"--psm 6"
+
+# 13
+#psm --11
+#letter_img ['e', 'p', ' ', 'o', 'e', '\n']
+
+#r"--psm 8"
+#letter_img ['a', '\n']
 
 def get_letter_image(letter):
      
@@ -31,7 +50,7 @@ def get_letter_image(letter):
     except Exception as e:
         print(f"Error opening image file: {str(e)}")
 
-    return img   
+    return img, filename 
 
 def generate_size_feedback(written_letter_information):
 
@@ -103,6 +122,9 @@ def generate_spacing_feedback(written_letter_information):
             spacing_feedback_scores[index] = 0
             spacing_feedback_scores[index+1] = 0
 
+    if sum(spacing_feedback_scores) == 5:
+        print('Reasonable letter spacing for all letters.')
+
     return spacing_feedback_scores
 
 def generate_bounding_rectangles(contours, img):
@@ -141,7 +163,7 @@ def generate_bounding_rectangles(contours, img):
 
     return sorted(bounding_rectangles, key=lambda rect: rect[0])
 
-def generate_letter_labels(written_letter_information, img, total_feedback_scores):
+def generate_letter_labels(written_letter_information, img, total_feedback_scores, green_threshold):
 
     labels = ["Letter 1", "Letter 2", "Letter 3", "Letter 4", "Letter 5"]
 
@@ -154,7 +176,7 @@ def generate_letter_labels(written_letter_information, img, total_feedback_score
         h = written_letter_information[letter]["Bounding Rectangle"][3]
 
         # TODO: change text and rectangle color based on feedback - orange, green, or red
-        if total_feedback_scores[i] == 2:
+        if total_feedback_scores[i] >= green_threshold:
             color = (0, 255, 0) # green
         elif total_feedback_scores[i] == 0:
             color = (255, 0, 0) # red
@@ -220,7 +242,222 @@ def generate_image_zoom(img, sorted_bounding_rectangles):
 
     return zoomed_roi
 
-def generate_letter_feedback(img):
+def generate_size_spacing_feedback(img, written_letter_information, sorted_bounding_rectangles):
+
+    # 1 point possible per letter
+    size_feedback_scores = generate_size_feedback(written_letter_information)
+
+    # 1 point possible per letter
+    spacing_feedback_scores = generate_spacing_feedback(written_letter_information)
+
+    # print('size_feedback_scores: ', size_feedback_scores)
+    # print('spacing_feedback_scores: ', spacing_feedback_scores)
+
+    # total feedback score 
+    total_feedback_scores = [size_feedback_scores[i] + spacing_feedback_scores[i] for i in range(len(size_feedback_scores))]
+
+    # add labels to each letter, in sorted order.
+    # change color based on feedback scores
+    generate_letter_labels(written_letter_information, img, total_feedback_scores, 2)
+
+    # zoom in on image so user can see better
+    zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
+
+    # commenting out during testing but add back later
+    plt.imshow(zoomed_roi)
+    plt.title("Size and Spacing Feedback - Visualized")
+    plt.show()
+
+def generate_readability_feedback(filename, written_letter_information, goal_letter):
+    
+    # game plan
+    # print('written_letter_information')
+    # print(written_letter_information)
+
+    detection_feedback_scores = [0,0,0,0,0]
+
+    # iterate through letters
+    for letter in written_letter_information:
+
+        letter_img = generate_letter_image(letter, written_letter_information, filename)
+
+        scale_percent = 60 # percent of original size
+        width = int(letter_img.shape[1] * scale_percent / 100)
+        height = int(letter_img.shape[0] * scale_percent / 100)
+        dim = (width, height)
+        
+        # resize image - this part was key
+        letter_img = cv.resize(letter_img, dim, interpolation = cv.INTER_AREA)
+
+        #gry = cv.cvtColor(letter_img, cv.COLOR_BGR2GRAY)
+
+        thr = cv.threshold(letter_img, 120, 255, cv.THRESH_OTSU)[1]
+
+        #ret,thresh1 = cv.threshold(letter_img,127,255,cv.THRESH_BINARY)
+        thr = cv.blur(thr,(4,4))
+        # letter_img = letter_img.crop((left-10, top-10, right+10, bottom+10))
+        
+        # for testing purposes
+        # plt.imshow(thr)
+        # plt.title("Tester")
+        # plt.show()
+
+        detected_letter = list(pytesseract.image_to_string(thr, config=myconfig))
+        
+        # gets string or nothing - remove \n from the end
+        if len(detected_letter) > 1:
+            detected_letter = detected_letter[0]
+        else:
+            detected_letter = ''
+
+        #print('detected letter:  ', detected_letter)
+        #print('goal letterr: ', goal_letter)
+        
+        if detected_letter == goal_letter:
+            detection_feedback_scores[letter] = 1
+        else:
+            print("Letter ", letter+1, " did not match on identification.")
+
+    if sum(detection_feedback_scores) == 5:
+        print('All letters were able to be identified.')
+
+    return detection_feedback_scores
+
+def generate_letter_image(letter, written_letter_information, filename):
+
+        bounding_rectangle = written_letter_information[letter]['Bounding Rectangle']
+
+        left = bounding_rectangle[0]
+        top = bounding_rectangle[1]
+        right = bounding_rectangle[0] + bounding_rectangle[2]
+        bottom = bounding_rectangle[1] + bounding_rectangle[3]
+
+        letter_img = Image.open(filename)
+
+        # crop to the letter's bounding rectangle so you have 
+        # a per-letter image
+        letter_img = cv.imread(filename, cv.IMREAD_GRAYSCALE)
+
+        # crop the image down
+        letter_img = letter_img[top-50:bottom+50, left-50:right+50]
+
+        return letter_img
+
+def generate_thickness_feedback(filename, written_letter_information):
+
+    # general idea: use the concept of erosion to detect problems
+    # with line thickness.
+    letter_percents = []
+
+    # do this on a per-letter basis 
+
+    # can get up to 2 for each value
+    thickness_feedback_scores = [0,0,0,0,0]
+
+    # iterate through letters
+    for letter in written_letter_information:
+
+        letter_img = generate_letter_image(letter, written_letter_information, filename)
+
+        # get the inverse
+        letter_img = cv.bitwise_not(letter_img)
+
+        # Creating kernel
+        kernel = np.ones((6, 6), np.uint8)
+
+        letter_img = cv.threshold(letter_img, 120, 255, cv.THRESH_BINARY)[1]
+
+        # Using cv2.erode() method 
+        letter_img = cv.erode(letter_img, kernel, iterations=4) 
+
+        #plt.imshow(letter_img)
+        #plt.title("Testing Thickness")
+        #plt.show()
+
+        # check if it's thick enough (should survive at least 4 iterations)
+        #print(letter_img)
+
+        # get the unique values (0 and 255) and the counts for each
+        uniques, counts = np.unique(letter_img, return_counts=True)
+        #print('uniques: ', uniques)
+        #print('counts: ', counts)
+
+        # get percentage
+        percent_letter = counts[1]/counts[0]
+
+        # print('Percent letter left: ', percent_letter)
+
+        # percent letter should be around 2 - 30%
+        if percent_letter > .3:
+            print('Letter ', letter+1, ' is too thick in general')
+
+        elif percent_letter < .02:
+            print('Letter ', letter+1, ' is too thin in general')
+        
+        else:
+             thickness_feedback_scores[letter] += 1
+
+        letter_percents.append(percent_letter)
+
+
+    # check for inconsistent thickness across the letters
+    # i.e. one is much thicker than the others
+
+    median = statistics.median(letter_percents)
+    #print('Median: ', median)
+
+    for index, number in enumerate(letter_percents):
+
+        #print('Letter: ', index+1, ' had a letter percent of ', number)
+
+        if number > median + (median/3):
+
+            print(f"Letter {index+1} is too thick compared to your other letters. ")
+            
+            
+        elif number < median - (median/3):
+
+            print(f"Letter {index+1} is too thin compared to your other letters.")
+            
+        else:
+            thickness_feedback_scores[index] += 1
+
+    if sum(thickness_feedback_scores) == 10:
+        print('All letters had good thickness.')
+
+    return thickness_feedback_scores
+
+def generate_similarity_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter):
+
+    # generate letter detection scores with tesseract
+    readability_feedback_scores = generate_readability_feedback(filename, written_letter_information, goal_letter)
+
+    # augment with personalized functions for symmetry 
+    # maybe this is "symmetry" feedback - will depend on letter
+
+    # augment with function for line thickness
+    # maybe this is "thickness" feedback
+    thickness_feedback_scores = generate_thickness_feedback(filename, written_letter_information)
+
+    # print('readability_feedback_scores: ', readability_feedback_scores)
+    # print('thickness_feedback_scores: ', thickness_feedback_scores)
+
+    # total feedback score 
+    total_feedback_scores = [readability_feedback_scores[i] + thickness_feedback_scores[i] for i in range(len(thickness_feedback_scores))]
+
+    # add labels to each letter, in sorted order.
+    # change color based on feedback scores
+    generate_letter_labels(written_letter_information, img, total_feedback_scores, 3)
+
+    # zoom in on image so user can see better
+    zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
+
+    # commenting out during testing but add back later
+    plt.imshow(zoomed_roi)
+    plt.title("Similarity Feedback - Visualized")
+    plt.show()
+
+def generate_letter_feedback(img, filename, goal_letter):
      
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     ret, th1 = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
@@ -231,39 +468,24 @@ def generate_letter_feedback(img):
     sorted_bounding_rectangles = generate_bounding_rectangles(contours, img)
     written_letter_information = generate_letter_information(sorted_bounding_rectangles)
 
-    # 1 point possible per letter
-    size_feedback_scores = generate_size_feedback(written_letter_information)
+    # SIZE AND SPACING SCORES #
+    print('\n\n --- Size and Spacing Feedback ---')
+    generate_size_spacing_feedback(img, written_letter_information, sorted_bounding_rectangles)
 
-    # 1 point possible per letter
-    spacing_feedback_scores = generate_spacing_feedback(written_letter_information)
+    # SIMILARITY SCORES: letter detection, symmetry, and thickness #
+    print('\n\n --- Similarity Feedback ---')
+    generate_similarity_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter)
 
-    print('size_feedback_scores: ', size_feedback_scores)
-    print('spacing_feedback_scores: ', spacing_feedback_scores)
-
-    # total feedback score 
-    total_feedback_scores = [size_feedback_scores[i] + spacing_feedback_scores[i] for i in range(len(size_feedback_scores))]
-
-    # add labels to each letter, in sorted order.
-    # change color based on feedback scores
-    generate_letter_labels(written_letter_information, img, total_feedback_scores)
-
-    # zoom in on image so user can see better
-    zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
-
-    plt.imshow(zoomed_roi)
-    plt.title("Feedback")
-    plt.show()
-     
     return 1
 
 def letter_analysis(letter):
 
         print(f"\n-----------{letter}-----------\n")
         
-        img = get_letter_image(letter)
+        img, filename = get_letter_image(letter)
         print('Thanks for uploading your image!'\
         '\nGenerating feedback.....\n')
-        generate_letter_feedback(img)
+        generate_letter_feedback(img, filename, letter)
 
         # automating a decimal for now
         return .5
