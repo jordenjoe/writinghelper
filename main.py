@@ -8,8 +8,8 @@ import pytesseract
 import numpy as np
 
 
-practice_letters = ['L', 'F', 'E', 'H', 'T', 'I', 'D', 'B', 'P', 'U', 'J', 'C', 'O', 'G', 'Q', 'S', 'R', 'A', 'K', 'M', 'N', 'V', 'W', 'X', 'Y', 'Z', 'l', 't', 'i', 'c', 'k', 'o', 'p', 's', 'v', 'u', 'w', 'x', 'z', 'h', 'n', 'm', 'r', 'b', 'a', 'd', 'g', 'q', 'e', 'f', 'j', 'k', 'y']
-practice_letters = ['A', 'L', 'F', 'E']
+practice_letters = ['F', 'E', 'H', 'T','L', 'I', 'D', 'B', 'P', 'U', 'J', 'C', 'O', 'G', 'Q', 'S', 'R', 'A', 'K', 'M', 'N', 'V', 'W', 'X', 'Y', 'Z', 'l', 't', 'i', 'c', 'k', 'o', 'p', 's', 'v', 'u', 'w', 'x', 'z', 'h', 'n', 'm', 'r', 'b', 'a', 'd', 'g', 'q', 'e', 'f', 'j', 'k', 'y']
+practice_letters = ['H', 'A', 'F', 'E', 'L']
 # L is bad at detection
 # A has some feeedback on sizing
 # F is bad at size
@@ -250,12 +250,14 @@ def generate_size_spacing_feedback(img, written_letter_information, sorted_bound
     # 1 point possible per letter
     spacing_feedback_scores = generate_spacing_feedback(written_letter_information)
 
-    # print('size_feedback_scores: ', size_feedback_scores)
-    # print('spacing_feedback_scores: ', spacing_feedback_scores)
+    #print('size_feedback_scores: ', size_feedback_scores)
+    #print('spacing_feedback_scores: ', spacing_feedback_scores)
 
     # total feedback score 
     total_feedback_scores = [size_feedback_scores[i] + spacing_feedback_scores[i] for i in range(len(size_feedback_scores))]
-
+    
+    print('Score for size and spacing feedback section: ', sum(total_feedback_scores)/10*100, '%')
+    
     # add labels to each letter, in sorted order.
     # change color based on feedback scores
     generate_letter_labels(written_letter_information, img, total_feedback_scores, 2)
@@ -264,9 +266,11 @@ def generate_size_spacing_feedback(img, written_letter_information, sorted_bound
     zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
 
     # commenting out during testing but add back later
-    plt.imshow(zoomed_roi)
-    plt.title("Size and Spacing Feedback - Visualized")
-    plt.show()
+    #plt.imshow(zoomed_roi)
+    #plt.title("Size and Spacing Feedback - Visualized")
+    #plt.show()
+
+    return total_feedback_scores
 
 def generate_readability_feedback(filename, written_letter_information, goal_letter):
     
@@ -367,7 +371,7 @@ def generate_thickness_feedback(filename, written_letter_information):
 
         letter_img = cv.threshold(letter_img, 120, 255, cv.THRESH_BINARY)[1]
 
-        # Using cv2.erode() method 
+        # Using cv.erode() method 
         letter_img = cv.erode(letter_img, kernel, iterations=4) 
 
         #plt.imshow(letter_img)
@@ -445,6 +449,8 @@ def generate_similarity_feedback(img, sorted_bounding_rectangles, filename, writ
     # total feedback score 
     total_feedback_scores = [readability_feedback_scores[i] + thickness_feedback_scores[i] for i in range(len(thickness_feedback_scores))]
 
+    print('Score for similarity feedback section: ', sum(total_feedback_scores)/15*100, '%')
+
     # add labels to each letter, in sorted order.
     # change color based on feedback scores
     generate_letter_labels(written_letter_information, img, total_feedback_scores, 3)
@@ -453,10 +459,89 @@ def generate_similarity_feedback(img, sorted_bounding_rectangles, filename, writ
     zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
 
     # commenting out during testing but add back later
+    #plt.imshow(zoomed_roi)
+    #plt.title("Similarity Feedback - Visualized")
+    #plt.show()
+
+    return total_feedback_scores
+
+def generate_skew_angle(letter_img):
+    
+    # guide: https://pyimagesearch.com/2017/02/20/text-skew-correction-opencv-python/
+
+    scale_percent = 60 # percent of original size
+    width = int(letter_img.shape[1] * scale_percent / 100)
+    height = int(letter_img.shape[0] * scale_percent / 100)
+    dim = (width, height)
+
+    letter_img = cv.resize(letter_img, dim, interpolation = cv.INTER_AREA)
+
+    newImage = letter_img.copy()
+    blur = cv.GaussianBlur(newImage, (9, 9), 0)
+    thresh = cv.threshold(newImage, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU)[1]
+
+    # compute a rotated bounding box that contains all
+    # coordinates
+    coords = np.column_stack(np.where(thresh > 0))
+    angle = cv.minAreaRect(coords)[-1]
+
+    if angle < -45:
+        angle = -(90 + angle)
+
+    # otherwise, just take the inverse of the angle to make
+    # it positive
+    else:
+        angle = -angle
+
+    return angle
+
+def generate_slant_feedback_scores(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter):
+
+    letter_percents = []
+
+    # do this on a per-letter basis 
+
+    # can get up to 2 for each value
+    skew_feedback_scores = [0,0,0,0,0]
+
+    # iterate through letters
+    for letter in written_letter_information:
+
+        letter_img = generate_letter_image(letter, written_letter_information, filename)
+
+        angle = generate_skew_angle(letter_img)
+
+        # if the skew angle is not within 15 of 0, - 90, 90, it's too skewed
+        if abs(angle) <= 15 or abs(angle - 90) <= 15 or abs(angle + 90) <= 15:
+
+            skew_feedback_scores[letter] = 1
+
+        else:
+
+            print(f"Letter {letter+1} is too skewed, making it difficult to read.")    
+
+    return skew_feedback_scores
+
+def generate_slant_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter):
+
+    skew_feedback_scores = generate_slant_feedback_scores(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter)
+
+    print('Score for slant feedback section: ', sum(skew_feedback_scores)/5*100, '%')
+
+    # add labels to each letter, in sorted order.
+    # change color based on feedback scores
+    generate_letter_labels(written_letter_information, img, skew_feedback_scores, 1)
+
+    # zoom in on image so user can see better
+    zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
+
+    # commenting out during testing but add back later
     plt.imshow(zoomed_roi)
-    plt.title("Similarity Feedback - Visualized")
+    plt.title("Skew Feedback - Visualized")
     plt.show()
 
+    return skew_feedback_scores
+    
 def generate_letter_feedback(img, filename, goal_letter):
      
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -468,15 +553,23 @@ def generate_letter_feedback(img, filename, goal_letter):
     sorted_bounding_rectangles = generate_bounding_rectangles(contours, img)
     written_letter_information = generate_letter_information(sorted_bounding_rectangles)
 
+    total_feedback_score = 0
+    total_possible_score = 35 # this is the sum of all the possible points
+
     # SIZE AND SPACING SCORES #
     print('\n\n --- Size and Spacing Feedback ---')
-    generate_size_spacing_feedback(img, written_letter_information, sorted_bounding_rectangles)
+    total_feedback_score += sum(generate_size_spacing_feedback(img, written_letter_information, sorted_bounding_rectangles))
 
-    # SIMILARITY SCORES: letter detection, symmetry, and thickness #
-    print('\n\n --- Similarity Feedback ---')
-    generate_similarity_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter)
+    # SLANT SCORES #
+    print('\n\n --- Slant Feedback ---')
+    total_feedback_score += sum(generate_slant_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter))
 
-    return 1
+    # SIMILARITY SCORES: letter detection, and thickness #
+    print('\n\n --- Identification and Thickness Feedback ---')
+    total_feedback_score += sum(generate_similarity_feedback(img, sorted_bounding_rectangles, filename, written_letter_information, goal_letter))
+
+    # Finalize score - total out of all possible points you can score
+    return total_feedback_score/total_possible_score
 
 def letter_analysis(letter):
 
@@ -485,10 +578,10 @@ def letter_analysis(letter):
         img, filename = get_letter_image(letter)
         print('Thanks for uploading your image!'\
         '\nGenerating feedback.....\n')
-        generate_letter_feedback(img, filename, letter)
+        feedback_score = generate_letter_feedback(img, filename, letter)
 
         # automating a decimal for now
-        return .5
+        return feedback_score
 
 def main():
 
@@ -503,11 +596,11 @@ def main():
             result = letter_analysis(letter)
 
             if result < threshold:
-                 print('\n\nYour result ', result, ' was less than your threshold ', threshold,\
+                 print('\n\nYour result ', round(result*100, 0), '% was less than your threshold ', threshold,\
                        "\nLet's get more practice!")
-                 time.sleep(5)
+                 time.sleep(3)
             else:
-                print('\n\nYour result ', result, ' was greater than your threshold! Congrats.')
+                print('\n\nYour result ', round(result*100, 0), '% was greater than your threshold! Congrats.')
                 break
 
         print('Do you want to continue onto the next letter? Y/N')
