@@ -8,8 +8,14 @@ import pytesseract
 import numpy as np
 
 
-practice_letters = ['F', 'E', 'H', 'T','L', 'I', 'D', 'B', 'P', 'U', 'J', 'C', 'O', 'G', 'Q', 'S', 'R', 'A', 'K', 'M', 'N', 'V', 'W', 'X', 'Y', 'Z', 'l', 't', 'i', 'c', 'k', 'o', 'p', 's', 'v', 'u', 'w', 'x', 'z', 'h', 'n', 'm', 'r', 'b', 'a', 'd', 'g', 'q', 'e', 'f', 'j', 'k', 'y']
-practice_letters = ['H', 'A', 'F', 'E', 'L']
+practice_letters = ['F', 'E', 'H', 'T','L', 'I', 'D', 'B', 'P', 'U', 'J', 'C',
+                     'O', 'G', 'Q', 'S', 'R', 'A', 'K', 'M', 'N', 'V', 'W', 
+                     'X', 'Y', 'Z', 'l', 't', 'i', 'c', 'k', 'o', 'p', 
+                     's', 'v', 'u', 'w', 'x', 'z', 'h', 'n', 'm',
+                       'r', 'b', 'a', 'd', 'g', 'q', 'e', 'f', 'j', 'k', 'y']
+# practice_letters = ['H', 'A', 'F', 'E', 'L']
+practice_letters = ['w','G','d']
+
 # L is bad at detection
 # A has some feeedback on sizing
 # F is bad at size
@@ -266,9 +272,9 @@ def generate_size_spacing_feedback(img, written_letter_information, sorted_bound
     zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
 
     # commenting out during testing but add back later
-    #plt.imshow(zoomed_roi)
-    #plt.title("Size and Spacing Feedback - Visualized")
-    #plt.show()
+    plt.imshow(zoomed_roi)
+    plt.title("Size and Spacing Feedback - Visualized")
+    plt.show()
 
     return total_feedback_scores
 
@@ -293,18 +299,24 @@ def generate_readability_feedback(filename, written_letter_information, goal_let
         # resize image - this part was key
         letter_img = cv.resize(letter_img, dim, interpolation = cv.INTER_AREA)
 
+        # Creating kernel
+        kernel = np.ones((6, 6), np.uint8)
+
+        letter_img = cv.erode(letter_img, kernel, iterations=4) 
+
         #gry = cv.cvtColor(letter_img, cv.COLOR_BGR2GRAY)
 
         thr = cv.threshold(letter_img, 120, 255, cv.THRESH_OTSU)[1]
+
 
         #ret,thresh1 = cv.threshold(letter_img,127,255,cv.THRESH_BINARY)
         thr = cv.blur(thr,(4,4))
         # letter_img = letter_img.crop((left-10, top-10, right+10, bottom+10))
         
         # for testing purposes
-        # plt.imshow(thr)
-        # plt.title("Tester")
-        # plt.show()
+        #plt.imshow(thr)
+        #plt.title("Tester")
+        #plt.show()
 
         detected_letter = list(pytesseract.image_to_string(thr, config=myconfig))
         
@@ -459,9 +471,9 @@ def generate_similarity_feedback(img, sorted_bounding_rectangles, filename, writ
     zoomed_roi = generate_image_zoom(img, sorted_bounding_rectangles)
 
     # commenting out during testing but add back later
-    #plt.imshow(zoomed_roi)
-    #plt.title("Similarity Feedback - Visualized")
-    #plt.show()
+    plt.imshow(zoomed_roi)
+    plt.title("Similarity Feedback - Visualized")
+    plt.show()
 
     return total_feedback_scores
 
